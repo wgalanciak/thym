@@ -10,11 +10,11 @@ Require-Bundle: org.eclipse.core.runtime,
  org.eclipse.debug.core;bundle-version="[3.7.0,4.0.0)",
  org.apache.commons.io;bundle-version="[2.0.0,2.1.0)",
  org.eclipse.osgi.util,
- org.eclipse.thym.core;bundle-version="0.1.0"
+ org.eclipse.thym.core;bundle-version="0.1.0",
+ org.eclipse.ant.launching,
+ org.eclipse.core.externaltools
 Bundle-RequiredExecutionEnvironment: JavaSE-1.6
 Bundle-ActivationPolicy: lazy
 Export-Package: org.eclipse.thym.android.core,
  org.eclipse.thym.android.core.adt;x-friends:="org.eclipse.thym.android.ui"
-Import-Package: org.eclipse.ant.launching,
- org.eclipse.core.externaltools.internal
 Bundle-Localization: plugin
