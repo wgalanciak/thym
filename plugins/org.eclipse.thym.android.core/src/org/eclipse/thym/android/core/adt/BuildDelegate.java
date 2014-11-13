@@ -11,7 +11,7 @@
 package org.eclipse.thym.android.core.adt;
 
 import java.io.File;
-import java.util.Map;
+import java.io.FilenameFilter;
 
 import org.eclipse.ant.launching.IAntLaunchConstants;
 import org.eclipse.core.externaltools.internal.IExternalToolConstants;
@@ -19,6 +19,7 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.SubProgressMonitor;
 import org.eclipse.debug.core.DebugPlugin;
@@ -39,65 +40,80 @@ import org.eclipse.thym.core.platform.AbstractNativeBinaryBuildDelegate;
 public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
 
 	private File binaryDirectory;
+
 	public BuildDelegate() {
 	}
 
 	@Override
 	public void buildNow(IProgressMonitor monitor) throws CoreException {
-		if(monitor.isCanceled())
+		if (monitor.isCanceled())
 			return;
-		
-		//TODO: use extension point to create
+
+		// TODO: use extension point to create
 		// the generator.
-		AndroidProjectGenerator creator = new AndroidProjectGenerator(this.getProject(), getDestination(),"android"); 
-           		
+		AndroidProjectGenerator creator = new AndroidProjectGenerator(
+				this.getProject(), getDestination(), "android");
+
 		SubProgressMonitor generateMonitor = new SubProgressMonitor(monitor, 1);
 		File projectDirectory = creator.generateNow(generateMonitor);
 		monitor.worked(1);
-		if(monitor.isCanceled() ){
+		if (monitor.isCanceled()) {
 			return;
 		}
 		buildProject(projectDirectory, monitor);
 		monitor.done();
 	}
-	
-	public void buildProject(File projectLocation,IProgressMonitor monitor) throws CoreException{
+
+	public void buildProject(File projectLocation, IProgressMonitor monitor)
+			throws CoreException {
 		doBuildProject(projectLocation, false, monitor);
 	}
-	
-	public void buildLibraryProject(File projectLocation,IProgressMonitor monitor) throws CoreException{
+
+	public void buildLibraryProject(File projectLocation,
+			IProgressMonitor monitor) throws CoreException {
 		doBuildProject(projectLocation, true, monitor);
 	}
-	
+
 	/**
-	 * Returns the directory where build artifacts are stored. 
-	 * Will return null if the build is not yet complete or 
-	 * {@link #buildNow(IProgressMonitor)} is not called yet for this instance.
+	 * Returns the directory where build artifacts are stored. Will return null
+	 * if the build is not yet complete or {@link #buildNow(IProgressMonitor)}
+	 * is not called yet for this instance.
+	 * 
 	 * @return
 	 */
 	public File getBinaryDirectory() {
 		return binaryDirectory;
 	}
 
-	private void doBuildProject(File projectLocation, boolean isLibrary, IProgressMonitor monitor) throws CoreException{
-		ILaunchManager launchManager = DebugPlugin.getDefault().getLaunchManager();
-		ILaunchConfigurationType antLaunchConfigType = launchManager.getLaunchConfigurationType(IAntLaunchConstants.ID_ANT_LAUNCH_CONFIGURATION_TYPE);
-		if(antLaunchConfigType == null ){
-			throw new CoreException(new Status(IStatus.ERROR, AndroidCore.PLUGIN_ID, "Ant launch configuration type is not available"));
+	private void doBuildProject(File projectLocation, boolean isLibrary,
+			IProgressMonitor monitor) throws CoreException {
+		ILaunchManager launchManager = DebugPlugin.getDefault()
+				.getLaunchManager();
+		ILaunchConfigurationType antLaunchConfigType = launchManager
+				.getLaunchConfigurationType(IAntLaunchConstants.ID_ANT_LAUNCH_CONFIGURATION_TYPE);
+		if (antLaunchConfigType == null) {
+			throw new CoreException(new Status(IStatus.ERROR,
+					AndroidCore.PLUGIN_ID,
+					"Ant launch configuration type is not available"));
 		}
-		ILaunchConfigurationWorkingCopy wc = antLaunchConfigType.newInstance(null, "Android project builder"); //$NON-NLS-1$
+		ILaunchConfigurationWorkingCopy wc = antLaunchConfigType.newInstance(
+				null, "Android project builder"); //$NON-NLS-1$
 		wc.setContainer(null);
-		File buildFile = new File(projectLocation, AndroidConstants.FILE_XML_BUILD);
-		if(!buildFile.exists()){
-			throw new CoreException(new Status(IStatus.ERROR, AndroidCore.PLUGIN_ID, "build.xml does not exist in "+ projectLocation.getPath()));
+		File buildFile = new File(projectLocation,
+				AndroidConstants.FILE_XML_BUILD);
+		if (!buildFile.exists()) {
+			throw new CoreException(new Status(IStatus.ERROR,
+					AndroidCore.PLUGIN_ID, "build.xml does not exist in "
+							+ projectLocation.getPath()));
 		}
-		wc.setAttribute(IExternalToolConstants.ATTR_LOCATION, buildFile.getPath());
+		wc.setAttribute(IExternalToolConstants.ATTR_LOCATION,
+				buildFile.getPath());
 		String target = null;
-		if(isLibrary){
+		if (isLibrary) {
 			target = "jar";
-		}else{
+		} else {
 			target = "debug";
-			if(isRelease()){
+			if (isRelease()) {
 				target = "release";
 			}
 		}
@@ -106,41 +122,42 @@ public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
 
 		wc.setAttribute(IExternalToolConstants.ATTR_LAUNCH_IN_BACKGROUND, false);
 		wc.setAttribute(DebugPlugin.ATTR_CAPTURE_OUTPUT, true);
-		
+
 		setupVM(wc);
-		
-		wc.setAttribute(
-				IJavaLaunchConfigurationConstants.ATTR_MAIN_TYPE_NAME,
-				IAntLaunchConstants.ID_ANT_PROCESS_TYPE);
-		wc.setAttribute(DebugPlugin.ATTR_PROCESS_FACTORY_ID, "org.eclipse.ant.ui.remoteAntProcessFactory");
+
 		ILaunchConfiguration launchConfig = wc.doSave();
-        if (monitor.isCanceled()){
-        	return;
-        }
-		
-        launchConfig.launch(ILaunchManager.RUN_MODE, monitor, true, true);
-        
-        binaryDirectory = new File(projectLocation, AndroidConstants.DIR_BIN);
-        if(isLibrary){
-        	//no checks for libs
-        }else{
-        	HybridProject hybridProject = HybridProject.getHybridProject(getProject());
-        	if(isRelease()){
-        		setBuildArtifact(new File(binaryDirectory,hybridProject.getBuildArtifactAppName()+"-release-unsigned.apk" ));
-        	}else{
-        		setBuildArtifact(new File(binaryDirectory,hybridProject.getBuildArtifactAppName()+"-debug.apk" ));
-        	}
-        	if(!getBuildArtifact().exists()){
-        		throw new CoreException(new Status(IStatus.ERROR, AndroidCore.PLUGIN_ID, "Build failed... Build artifact does not exist"));
-        	}
-        }
+		if (monitor.isCanceled()) {
+			return;
+		}
+
+		launchConfig.launch(ILaunchManager.RUN_MODE, monitor, true, true);
+
+		binaryDirectory = new File(projectLocation, AndroidConstants.DIR_BIN);
+		if (isLibrary) {
+			// no checks for libs
+		} else {
+			HybridProject hybridProject = HybridProject
+					.getHybridProject(getProject());
+			if (isRelease()) {
+				setBuildArtifact(new File(binaryDirectory,
+						hybridProject.getBuildArtifactAppName()
+								+ "-release-unsigned.apk"));
+			} else {
+				setBuildArtifact(new File(binaryDirectory,
+						hybridProject.getBuildArtifactAppName() + "-debug.apk"));
+			}
+			if (!getBuildArtifact().exists()) {
+				throw new CoreException(new Status(IStatus.ERROR,
+						AndroidCore.PLUGIN_ID,
+						"Build failed... Build artifact does not exist"));
+			}
+		}
 	}
-	
+
 	private void setupVM(ILaunchConfigurationWorkingCopy wc)
 			throws CoreException {
 		// If JAVA_HOME is set then do nothing.
-		Map<String, String> envVariables = System.getenv();
-		if (envVariables.get("JAVA_HOME") != null) {
+		if (System.getenv("JAVA_HOME") != null) {
 			return;
 		}
 		// If JAVA_HOME is not set then firstly check if a default JRE points to
@@ -148,8 +165,10 @@ public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
 		IVMInstall defaultVM = JavaRuntime.getDefaultVMInstall();
 		// If not then try to find non-default one or create a new one and set
 		// it for this configuration.
-		if (!hasJavac(defaultVM)) {
-			IVMInstall customVM = null;
+		IVMInstall customVM = null;
+		if (hasJavac(defaultVM)) {
+			customVM = defaultVM;
+		} else {
 			IVMInstallType[] installs = JavaRuntime.getVMInstallTypes();
 			for (IVMInstallType vmInstallType : installs) {
 				if (vmInstallType.getId().equals(
@@ -166,22 +185,20 @@ public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
 					}
 					// If it does not exist then try to create a new one.
 					if (customVM == null) {
-						File jdkBin = findJdk();
-						if (jdkBin != null) {
-							File jdkHome = jdkBin.getParentFile();
+						File jdkHome = findJdk();
+						if (jdkHome != null) {
 							IVMInstall vmInstall = vmInstallType
 									.createVMInstall(createUniqueId(vmInstallType));
 							vmInstall.setName(jdkHome.getName());
 							vmInstall.setInstallLocation(jdkHome);
 							JavaRuntime.saveVMConfiguration();
 							customVM = vmInstall;
-							vmInstall.getLibraryLocations();
 						}
 					}
+					break;
 				}
 			}
 			if (customVM != null) {
-				customVM.getInstallLocation();
 				wc.setAttribute(
 						JavaRuntime.JRE_CONTAINER,
 						new Path(JavaRuntime.JRE_CONTAINER)
@@ -191,25 +208,63 @@ public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
 						false);
 			}
 		}
+		if (customVM != null) {
+			wc.setAttribute(
+					IJavaLaunchConfigurationConstants.ATTR_MAIN_TYPE_NAME,
+					IAntLaunchConstants.ID_ANT_PROCESS_TYPE);
+			wc.setAttribute(DebugPlugin.ATTR_PROCESS_FACTORY_ID,
+					"org.eclipse.ant.ui.remoteAntProcessFactory");
+		}
 	}
 
 	private File findJdk() {
-		// try to find jdk on PATH
-		Map<String, String> envVariables = System.getenv();
-		String pathVariable = envVariables.get("PATH");
-		if (pathVariable == null) {
-			pathVariable = envVariables.get("Path");
-		}
-		if (pathVariable != null) {
-			String[] segments = pathVariable.split(File.pathSeparator);
-			for (String path : segments) {
-				File file = new File(path);
-				if (hasJavac(file)) {
-					return file;
+		if (Platform.getOS().equals(Platform.OS_WIN32)) {
+			// try to find jdk on PATH
+			String pathVariable = System.getenv("Path");
+			if (pathVariable != null) {
+				String[] segments = pathVariable.split(File.pathSeparator);
+				for (String path : segments) {
+					File file = new File(path);
+					if (hasJavac(file)) {
+						return file.getParentFile();
+					}
+				}
+			}
+			String programFiles = System.getenv("ProgramFiles");
+			File javaFolder = new File(programFiles, "Java");
+			if (javaFolder.exists()) {
+				File[] jdkFolders = getJDKs(javaFolder);
+				if (jdkFolders != null && jdkFolders.length > 0) {
+					return jdkFolders[jdkFolders.length - 1];
 				}
 			}
 		}
+		if (Platform.getOS().equals(Platform.OS_MACOSX)) {
+			return findJdkMacOSX();
+		}
 		return null;
+	}
+
+	private File findJdkMacOSX() {
+		File vmsFolder = new File("/Library/Java/JavaVirtualMachines");
+		if (vmsFolder.exists()) {
+			File[] jdkFolders = getJDKs(vmsFolder);
+			if (jdkFolders != null && jdkFolders.length > 0) {
+				File jdkRoot = jdkFolders[jdkFolders.length - 1];
+				return new File(jdkRoot, "Contents/Home");
+			}
+		}
+		return null;
+	}
+	
+	private File[] getJDKs(File root) {
+		return root.listFiles(new FilenameFilter() {
+			
+			@Override
+			public boolean accept(File file, String name) {
+				return name.startsWith("jdk");
+			}
+		});
 	}
 
 	private boolean hasJavac(IVMInstall vmInstall) {
