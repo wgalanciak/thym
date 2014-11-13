@@ -11,12 +11,14 @@
 package org.eclipse.thym.android.core.adt;
 
 import java.io.File;
+import java.util.Map;
 
 import org.eclipse.ant.launching.IAntLaunchConstants;
 import org.eclipse.core.externaltools.internal.IExternalToolConstants;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Path;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.SubProgressMonitor;
 import org.eclipse.debug.core.DebugPlugin;
@@ -24,6 +26,11 @@ import org.eclipse.debug.core.ILaunchConfiguration;
 import org.eclipse.debug.core.ILaunchConfigurationType;
 import org.eclipse.debug.core.ILaunchConfigurationWorkingCopy;
 import org.eclipse.debug.core.ILaunchManager;
+import org.eclipse.jdt.internal.launching.StandardVMType;
+import org.eclipse.jdt.launching.IJavaLaunchConfigurationConstants;
+import org.eclipse.jdt.launching.IVMInstall;
+import org.eclipse.jdt.launching.IVMInstallType;
+import org.eclipse.jdt.launching.JavaRuntime;
 import org.eclipse.thym.android.core.AndroidConstants;
 import org.eclipse.thym.android.core.AndroidCore;
 import org.eclipse.thym.core.HybridProject;
@@ -62,6 +69,16 @@ public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
 		doBuildProject(projectLocation, true, monitor);
 	}
 	
+	/**
+	 * Returns the directory where build artifacts are stored. 
+	 * Will return null if the build is not yet complete or 
+	 * {@link #buildNow(IProgressMonitor)} is not called yet for this instance.
+	 * @return
+	 */
+	public File getBinaryDirectory() {
+		return binaryDirectory;
+	}
+
 	private void doBuildProject(File projectLocation, boolean isLibrary, IProgressMonitor monitor) throws CoreException{
 		ILaunchManager launchManager = DebugPlugin.getDefault().getLaunchManager();
 		ILaunchConfigurationType antLaunchConfigType = launchManager.getLaunchConfigurationType(IAntLaunchConstants.ID_ANT_LAUNCH_CONFIGURATION_TYPE);
@@ -89,6 +106,13 @@ public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
 
 		wc.setAttribute(IExternalToolConstants.ATTR_LAUNCH_IN_BACKGROUND, false);
 		wc.setAttribute(DebugPlugin.ATTR_CAPTURE_OUTPUT, true);
+		
+		setupVM(wc);
+		
+		wc.setAttribute(
+				IJavaLaunchConfigurationConstants.ATTR_MAIN_TYPE_NAME,
+				IAntLaunchConstants.ID_ANT_PROCESS_TYPE);
+		wc.setAttribute(DebugPlugin.ATTR_PROCESS_FACTORY_ID, "org.eclipse.ant.ui.remoteAntProcessFactory");
 		ILaunchConfiguration launchConfig = wc.doSave();
         if (monitor.isCanceled()){
         	return;
@@ -112,15 +136,114 @@ public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
         }
 	}
 	
+	private void setupVM(ILaunchConfigurationWorkingCopy wc)
+			throws CoreException {
+		// If JAVA_HOME is set then do nothing.
+		Map<String, String> envVariables = System.getenv();
+		if (envVariables.get("JAVA_HOME") != null) {
+			return;
+		}
+		// If JAVA_HOME is not set then firstly check if a default JRE points to
+		// JDK. If it does then do nothing again.
+		IVMInstall defaultVM = JavaRuntime.getDefaultVMInstall();
+		// If not then try to find non-default one or create a new one and set
+		// it for this configuration.
+		if (!hasJavac(defaultVM)) {
+			IVMInstall customVM = null;
+			IVMInstallType[] installs = JavaRuntime.getVMInstallTypes();
+			for (IVMInstallType vmInstallType : installs) {
+				if (vmInstallType.getId().equals(
+						StandardVMType.ID_STANDARD_VM_TYPE)) {
+					// Try to find a non-default existing JRE.
+					IVMInstall[] vmInstalls = vmInstallType.getVMInstalls();
+					if (vmInstalls != null) {
+						for (IVMInstall vmInstall : vmInstalls) {
+							if (hasJavac(vmInstall)) {
+								customVM = vmInstall;
+								break;
+							}
+						}
+					}
+					// If it does not exist then try to create a new one.
+					if (customVM == null) {
+						File jdkBin = findJdk();
+						if (jdkBin != null) {
+							File jdkHome = jdkBin.getParentFile();
+							IVMInstall vmInstall = vmInstallType
+									.createVMInstall(createUniqueId(vmInstallType));
+							vmInstall.setName(jdkHome.getName());
+							vmInstall.setInstallLocation(jdkHome);
+							JavaRuntime.saveVMConfiguration();
+							customVM = vmInstall;
+							vmInstall.getLibraryLocations();
+						}
+					}
+				}
+			}
+			if (customVM != null) {
+				customVM.getInstallLocation();
+				wc.setAttribute(
+						JavaRuntime.JRE_CONTAINER,
+						new Path(JavaRuntime.JRE_CONTAINER)
+								.append(StandardVMType.ID_STANDARD_VM_TYPE)
+								.append(customVM.getName()).toString());
+				wc.setAttribute(IAntLaunchConstants.ATTR_DEFAULT_VM_INSTALL,
+						false);
+			}
+		}
+	}
+
+	private File findJdk() {
+		// try to find jdk on PATH
+		Map<String, String> envVariables = System.getenv();
+		String pathVariable = envVariables.get("PATH");
+		if (pathVariable == null) {
+			pathVariable = envVariables.get("Path");
+		}
+		if (pathVariable != null) {
+			String[] segments = pathVariable.split(File.pathSeparator);
+			for (String path : segments) {
+				File file = new File(path);
+				if (hasJavac(file)) {
+					return file;
+				}
+			}
+		}
+		return null;
+	}
+
+	private boolean hasJavac(IVMInstall vmInstall) {
+		if (vmInstall != null) {
+			File binFolder = new File(vmInstall.getInstallLocation(), "bin");
+			if (binFolder.exists()) {
+				return hasJavac(binFolder);
+			}
+		}
+		return false;
+	}
+
+	private boolean hasJavac(File binFolder) {
+		File javac = new File(binFolder, "javac");
+		if (!javac.exists()) {
+			javac = new File(binFolder, "javac.exe");
+			return javac.exists();
+		}
+		return true;
+	}
 
 	/**
-	 * Returns the directory where build artifacts are stored. 
-	 * Will return null if the build is not yet complete or 
-	 * {@link #buildNow(IProgressMonitor)} is not called yet for this instance.
-	 * @return
+	 * Creates a unique name for the VMInstallType
+	 * 
+	 * @param vmType
+	 *            the vm install type
+	 * @return a unique name
 	 */
-	public File getBinaryDirectory() {
-		return binaryDirectory;
+	private static String createUniqueId(IVMInstallType vmType) {
+		String id = null;
+		do {
+			id = String.valueOf(System.currentTimeMillis());
+		} while (vmType.findVMInstall(id) != null);
+		return id;
 	}
 
 }
