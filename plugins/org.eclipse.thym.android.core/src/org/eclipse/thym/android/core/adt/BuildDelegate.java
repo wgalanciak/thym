@@ -34,6 +34,7 @@ import org.eclipse.jdt.launching.IVMInstallType;
 import org.eclipse.jdt.launching.JavaRuntime;
 import org.eclipse.thym.android.core.AndroidConstants;
 import org.eclipse.thym.android.core.AndroidCore;
+import org.eclipse.thym.core.HybridMobileStatus;
 import org.eclipse.thym.core.HybridProject;
 import org.eclipse.thym.core.platform.AbstractNativeBinaryBuildDelegate;
 
@@ -215,6 +216,10 @@ public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
 			wc.setAttribute(DebugPlugin.ATTR_PROCESS_FACTORY_ID,
 					"org.eclipse.ant.ui.remoteAntProcessFactory");
 		}
+		throw new CoreException(new HybridMobileStatus(IStatus.ERROR,
+				AndroidCore.PLUGIN_ID,
+				AndroidConstants.STATUS_CODE_ANDROID_JDK_MISSING,
+				"JDK is not defined", null));
 	}
 
 	private File findJdk() {
