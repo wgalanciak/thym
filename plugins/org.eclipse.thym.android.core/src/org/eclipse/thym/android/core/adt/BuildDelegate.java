@@ -215,11 +215,15 @@ public class BuildDelegate extends AbstractNativeBinaryBuildDelegate {
 					IAntLaunchConstants.ID_ANT_PROCESS_TYPE);
 			wc.setAttribute(DebugPlugin.ATTR_PROCESS_FACTORY_ID,
 					"org.eclipse.ant.ui.remoteAntProcessFactory");
+		} else {
+			throw new CoreException(
+					new HybridMobileStatus(
+							IStatus.ERROR,
+							AndroidCore.PLUGIN_ID,
+							AndroidConstants.STATUS_CODE_ANDROID_JDK_MISSING,
+							"Location of JDK must be defined for building Android applications (Preferecnes -> Java -> Installed JREs).",
+							null));
 		}
-		throw new CoreException(new HybridMobileStatus(IStatus.ERROR,
-				AndroidCore.PLUGIN_ID,
-				AndroidConstants.STATUS_CODE_ANDROID_JDK_MISSING,
-				"JDK is not defined", null));
 	}
 
 	private File findJdk() {
