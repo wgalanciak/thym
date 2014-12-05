@@ -98,5 +98,11 @@
             id="org.eclipse.thym.android.ui.missingSDKStatusHandler"
             plugin="org.eclipse.thym.android.core">
       </statusHandler>
+      <statusHandler
+            class="org.eclipse.thym.android.ui.internal.statushandler.MissingJDKStatusHandler"
+            code="220"
+            id="org.eclipse.thym.android.ui.missingJDKStatusHandler"
+            plugin="org.eclipse.thym.android.core">
+      </statusHandler>
    </extension>
 </plugin>

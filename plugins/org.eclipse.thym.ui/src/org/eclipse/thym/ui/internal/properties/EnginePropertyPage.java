@@ -61,8 +61,12 @@ public class EnginePropertyPage extends PropertyPage {
 		noDefaultAndApplyButton();
 		HybridProject hybridProject = getProject();
 		HybridMobileEngine activeEngine = hybridProject.getActiveEngine();
-		if(activeEngine != null){
-			engineSection.setSelection(new StructuredSelection(activeEngine));
+		if (activeEngine != null) {
+			List<HybridMobileEngine> engines = engineSection.getListedEngines();
+			if (engines != null && engines.indexOf(activeEngine) != -1) {
+				engineSection
+						.setSelection(new StructuredSelection(activeEngine));
+			}
 		}
 		else{
 			setValid(isValid());
